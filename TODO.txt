@@ -1,0 +1,5 @@
+TO-DO
+
+HW
+- debug schimbat in cod sa vedem mesaje
+- config placa + arduino IDE pt noua placa
