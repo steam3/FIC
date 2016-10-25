@@ -1,0 +1,10 @@
+Fiind dat la intrre un fisier cu cod asambler, obtinut in urma compilarii unui fisier sursa .c prin comanda
+ $ gcc -S sursa.c
+ sa se analizeze distributia instructiunilor in limbaj de asamblare din perspectiva:
+ - numar total de instructiuni;
+ - numar de instructiuni de transfer de date 
+ - numar de instructiuni aritmetice 
+ - numar de instructiuni de salt (conditionat sau direct)
+ - alte instructiuni;
+ 
+ Lista de instructiuni se poate gasi la https://pdos.csail.mit.edu/6.828/2006/readings/i386/c17.htm
