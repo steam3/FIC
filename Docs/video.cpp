@@ -6,6 +6,15 @@
 //#include <opencv2\cv.h>
 #include "opencv2/opencv.hpp"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+
 using namespace std;
 using namespace cv;
 //initial min and max HSV filter values.
@@ -16,6 +25,28 @@ int S_MIN = 0;
 int S_MAX = 256;
 int V_MIN = 0;
 int V_MAX = 256;
+
+int H_MIN_B = 92;
+int H_MAX_B = 256;
+int S_MIN_B = 135;
+int S_MAX_B = 256;
+int V_MIN_B = 176;
+int V_MAX_B = 256;
+
+int H_MIN_G = 54;
+int H_MAX_G = 256;
+int S_MIN_G = 152;
+int S_MAX_G = 256;
+int V_MIN_G = 146;
+int V_MAX_G = 227;
+
+int H_MIN_R = 109;
+int H_MAX_R = 186;
+int S_MIN_R = 80;
+int S_MAX_R = 237;
+int V_MIN_R = 215;
+int V_MAX_R = 256;
+
 //default capture width and height
 const int FRAME_WIDTH = 640;
 const int FRAME_HEIGHT = 480;
@@ -30,6 +61,9 @@ const std::string windowName1 = "HSV Image";
 const std::string windowName2 = "Thresholded Image";
 const std::string windowName3 = "After Morphological Operations";
 const std::string trackbarWindowName = "Trackbars";
+struct sockaddr_in serv_addr;
+struct hostent * server;
+int sockfd, portno,n;
 
 
 void on_mouse(int e, int x, int y, int d, void *ptr)
@@ -175,6 +209,51 @@ void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed) {
 		else putText(cameraFeed, "TOO MUCH NOISE! ADJUST FILTER", Point(0, 50), 1, 2, Scalar(0, 0, 255), 2);
 	}
 }
+
+int  createSocket()
+{
+
+	char hostname[] ="193.226.12.217";
+	char portNo [] ="20231";
+	char command[256];
+
+
+	int portno=atoi(portNo);
+
+	sockfd= socket(AF_INET,SOCK_STREAM,0);
+
+	if (sockfd < 0){
+		printf("ERROR opening socket");
+		//exit(1);
+	}
+	//initialize serv_addr with zero
+
+
+	server= gethostbyname(hostname);
+	if( server == NULL)
+	{
+		printf("Error\n");
+
+	}
+
+	bzero((char *) &serv_addr, sizeof(serv_addr));
+	//number of port which server will listen for connection
+	//portno = atoi(portNo);
+	//address family code
+	serv_addr.sin_family = AF_INET;
+	//portnumber field in struct
+	bcopy((char *)server->h_addr,(char *)&serv_addr.sin_addr.s_addr,server->h_length);
+	serv_addr.sin_port=htons(portno);
+
+	if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
+	{
+		printf("ERROR on connect");
+		//exit(1);
+	}
+
+	return 0;
+}
+
 int main(int argc, char* argv[])
 {
 
@@ -182,53 +261,116 @@ int main(int argc, char* argv[])
 	//program
 	bool trackObjects = true;
 	bool useMorphOps = true;
-
+	char buffer[256];
 	Point p;
 	//Matrix to store each frame of the webcam feed
 	Mat cameraFeed;
 	//matrix storage for HSV image
 	Mat HSV;
 	//matrix storage for binary threshold image
-	Mat threshold;
+	Mat threshold,threshold2;
 	//x and y values for the location of the object
-	int x = 0, y = 0;
+	int x_me = 0, y_me = 0,x_oponent=0,y_oponent=0;
 	//create slider bars for HSV filtering
 	createTrackbars();
 	//video capture object to acquire webcam feed
 	VideoCapture capture;
 	//open capture object at location zero (default location for webcam)
-	capture.open(0);
+	capture.open("rtmp://172.16.254.63/live/live");
 	//set height and width of capture frame
 	capture.set(CV_CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
 	capture.set(CV_CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
 	//start an infinite loop where webcam feed is copied to cameraFeed matrix
 	//all of our operations will be performed within this loop
 
+	createSocket();
 
-
-	
 	while (1) {
 
 
 		//store image to matrix
 		capture.read(cameraFeed);
+		if(cameraFeed.empty())
+		{
+			continue;
+		}
+
 		//convert frame from BGR to HSV colorspace
 		cvtColor(cameraFeed, HSV, COLOR_BGR2HSV);
 		//filter HSV image between values and store filtered image to
 		//threshold matrix
-		inRange(HSV, Scalar(H_MIN, S_MIN, V_MIN), Scalar(H_MAX, S_MAX, V_MAX), threshold);
+		inRange(HSV, Scalar(H_MIN_B, S_MIN_B, V_MIN_B), Scalar(H_MAX_B, S_MAX_B, V_MAX_B), threshold);
+		inRange(HSV, Scalar(H_MIN_G, S_MIN_G, V_MIN_G), Scalar(H_MAX_G, S_MAX_G, V_MAX_G), threshold2);
 		//perform morphological operations on thresholded image to eliminate noise
 		//and emphasize the filtered object(s)
 		if (useMorphOps)
+		{
 			morphOps(threshold);
+		}
+		if (useMorphOps)
+		{
+			morphOps(threshold2);
+		}
+
+		//bzero(buffer,256);
+
+		//sprintf(buffer,"f");
+
+		n = write(sockfd,buffer,strlen(buffer));
+
+		if(n < 0)
+		{
+			printf("error sending commands\n");
+		}
+
 		//pass in thresholded frame to our object tracking function
 		//this function will return the x and y coordinates of the
 		//filtered object
-		if (trackObjects)
-			trackFilteredObject(x, y, threshold, cameraFeed);
 
+		if (trackObjects)
+		{
+			trackFilteredObject(x_me, y_me, threshold, cameraFeed);
+			printf("x_me= %d, y_me=%d\n",x_me,y_me);
+		}
+		if (trackObjects)
+		{
+			trackFilteredObject(x_oponent, y_oponent, threshold2, cameraFeed);
+			printf("x_o= %d, y_o=%d\n",x_oponent,y_oponent);
+		}
+
+		//imshow(windowName2, threshold2);
+
+		while(x_me!=x_oponent && y_me!=y_oponent)
+		{
+
+			bzero(buffer,256);
+			sprintf(buffer,"f");
+			n= write(sockfd,buffer,strlen(buffer));
+			sleep(1);
+			bzero(buffer,256);
+			sprintf(buffer,"s");
+			n= write(sockfd,buffer,strlen(buffer));
+			sleep(3);
+
+			if (trackObjects)
+			{
+				trackFilteredObject(x_me, y_me, threshold, cameraFeed);
+				printf("x_me= %d, y_me=%d\n",x_me,y_me);
+			}
+			if (trackObjects)
+			{
+				trackFilteredObject(x_oponent, y_oponent, threshold2, cameraFeed);
+				printf("x_o= %d, y_o=%d\n",x_oponent,y_oponent);
+			}
+
+		}
+
+		bzero(buffer,256);
+		sprintf(buffer,"s");
+		bzero(buffer,256);
+		sprintf(buffer,"^]");
 		//show frames
-		imshow(windowName2, threshold);
+		imshow(windowName2, threshold2);
 		imshow(windowName, cameraFeed);
 		imshow(windowName1, HSV);
 		setMouseCallback("Original Image", on_mouse, &p);
@@ -239,4 +381,3 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
-
