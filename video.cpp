@@ -5,7 +5,15 @@
 #include "opencv2/highgui/highgui.hpp"
 //#include <opencv2\cv.h>
 #include "opencv2/opencv.hpp"
-#include "sys/socket.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
 
 using namespace std;
 using namespace cv;
@@ -31,6 +39,14 @@ int S_MIN_G = 152;
 int S_MAX_G = 256;
 int V_MIN_G = 146;
 int V_MAX_G = 227;
+
+int H_MIN_R = 109;
+int H_MAX_R = 186;
+int S_MIN_R = 80;
+int S_MAX_R = 237;
+int V_MIN_R = 215;
+int V_MAX_R = 256;
+
 //default capture width and height
 const int FRAME_WIDTH = 640;
 const int FRAME_HEIGHT = 480;
@@ -45,7 +61,9 @@ const std::string windowName1 = "HSV Image";
 const std::string windowName2 = "Thresholded Image";
 const std::string windowName3 = "After Morphological Operations";
 const std::string trackbarWindowName = "Trackbars";
-const std::string socketConnectionString="ip masinuta";
+struct sockaddr_in serv_addr;
+struct hostent * server;
+int sockfd, portno,n;
 
 
 void on_mouse(int e, int x, int y, int d, void *ptr)
@@ -192,52 +210,59 @@ void trackFilteredObject(int &x, int &y, Mat threshold, Mat &cameraFeed) {
 	}
 }
 
-void main createSocket(char portNo)
+int  createSocket()
 {
-	int sockfd, newsockfd,n;
-	struct sockaddr_in serv_addr, cli_addr;
-	int portno;
-	
-	client= socket(AF_INET,SOCK_STREAM,0);
+
+	char hostname[] ="193.226.12.217";
+	char portNo [] ="20231";
+	char command[256];
+
+
+	int portno=atoi(portNo);
+
+	sockfd= socket(AF_INET,SOCK_STREAM,0);
+
 	if (sockfd < 0){
-		error("ERROR opening socket");
-		exit(1);
+		printf("ERROR opening socket");
+		//exit(1);
 	}
 	//initialize serv_addr with zero
+
+
+	server= gethostbyname(hostname);
+	if( server == NULL)
+	{
+		printf("Error\n");
+
+	}
+
 	bzero((char *) &serv_addr, sizeof(serv_addr));
 	//number of port which server will listen for connection
-	portno = atoi(portNo);
+	//portno = atoi(portNo);
 	//address family code
 	serv_addr.sin_family = AF_INET;
 	//portnumber field in struct
-	serv_addr.sin_port = htons(portno);
-	//ip address of the host
-	serv_addr.sin_addr.s_addr = INADDR_ANY;
-	
-	//binding
-	
-	if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0){
-		error("ERROR on binding");
-		exit(1);
-	}
-	
-	listen(sockfd,5);
-	
-	clilen = sizeof(cli_addr);
-	newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
-	if (newsockfd < 0){
-		error("ERROR on accept");
-		exit(1);
-	}
-	
-	n = write(newsockfd,"Action",18);
-	
-	if (n < 0) 
+	bcopy((char *)server->h_addr,(char *)&serv_addr.sin_addr.s_addr,server->h_length);
+	serv_addr.sin_port=htons(portno);
+
+	if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
 	{
-		error("ERROR writing to socket");
-		exit(1);
+		printf("ERROR on connect");
+		//exit(1);
 	}
+
+	return 0;
 }
+
+void command (char com )
+{
+	char buffer[256];
+	bzero(buffer,256);
+	sprintf(buffer,com);
+	n= write(sockfd,buffer,strlen(buffer));
+}
+
+void detect()
 
 int main(int argc, char* argv[])
 {
@@ -246,16 +271,16 @@ int main(int argc, char* argv[])
 	//program
 	bool trackObjects = true;
 	bool useMorphOps = true;
-
+	
 	Point p;
 	//Matrix to store each frame of the webcam feed
 	Mat cameraFeed;
 	//matrix storage for HSV image
 	Mat HSV;
 	//matrix storage for binary threshold image
-	Mat threshold,threshold2;
+	Mat threshold_me,threshold_oponent,threshold_ring;
 	//x and y values for the location of the object
-	int x = 0, y = 0;
+	int x_me = 0, y_me = 0,x_oponent=0,y_oponent=0, x_ring, y_ring, r=280;
 	//create slider bars for HSV filtering
 	createTrackbars();
 	//video capture object to acquire webcam feed
@@ -268,8 +293,7 @@ int main(int argc, char* argv[])
 	//start an infinite loop where webcam feed is copied to cameraFeed matrix
 	//all of our operations will be performed within this loop
 
-
-
+	createSocket();
 
 	while (1) {
 
@@ -285,31 +309,67 @@ int main(int argc, char* argv[])
 		cvtColor(cameraFeed, HSV, COLOR_BGR2HSV);
 		//filter HSV image between values and store filtered image to
 		//threshold matrix
-		inRange(HSV, Scalar(H_MIN_B, S_MIN_B, V_MIN_B), Scalar(H_MAX_B, S_MAX_B, V_MAX_B), threshold);
-		inRange(HSV, Scalar(H_MIN_G, S_MIN_G, V_MIN_G), Scalar(H_MAX_G, S_MAX_G, V_MAX_G), threshold2);
+		inRange(HSV, Scalar(H_MIN_B, S_MIN_B, V_MIN_B), Scalar(H_MAX_B, S_MAX_B, V_MAX_B), threshold_me);
+		inRange(HSV, Scalar(H_MIN_G, S_MIN_G, V_MIN_G), Scalar(H_MAX_G, S_MAX_G, V_MAX_G), threshold_oponent);
+		inRange(HSV, Scalar(0, 0, 0), Scalar(0, 0, 0), threshold_ring);
 		//perform morphological operations on thresholded image to eliminate noise
 		//and emphasize the filtered object(s)
 		if (useMorphOps)
 		{
-			morphOps(threshold);
+			morphOps(threshold_me);
 		}
 		if (useMorphOps)
 		{
-			morphOps(threshold2);
+			morphOps(threshold_oponent);
+		}
+		
+		if (useMorphOps)
+		{
+			morphOps(threshold_ring);
+		}
+
+
+		if(n < 0)
+		{
+			printf("error sending commands\n");
 		}
 
 		//pass in thresholded frame to our object tracking function
 		//this function will return the x and y coordinates of the
 		//filtered object
-		if (trackObjects)
-		{
-			trackFilteredObject(x, y, threshold, cameraFeed);
-		}
-		if (trackObjects)
-		{
-			trackFilteredObject(x, y, threshold2, cameraFeed);
-		}
 
+		if (trackObjects)
+		{
+			trackFilteredObject(x_me, y_me, threshold_me, cameraFeed);
+			
+		}
+		if (trackObjects)
+		{
+			trackFilteredObject(x_oponent, y_oponent, threshold_oponent, cameraFeed);
+			
+		}
+		
+		if(trackObjects)
+		{
+			trackFilteredObject(x_ring, y_ring, threshold_ring, cameraFeed);
+			
+		}
+		
+		int x_calib=x_me+x_ring;
+		int y_calib=y_me+y_ring;
+		
+		if(x_calib*x_calib+y_calib*y_calib>=r*r)
+		{
+			command("s");
+			command("l");
+			command("l");
+			command("f");
+		}
+		else
+		{
+			//algoritm de bataie -pending
+			command("r");
+		}
 		//show frames
 		imshow(windowName2, threshold2);
 		imshow(windowName, cameraFeed);
